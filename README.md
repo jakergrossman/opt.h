@@ -7,6 +7,9 @@ OPT_H_IMPLEMENTATION` to generate the implementation:
     #define OPT_H_IMPLEMENTATION
     #include "opt.h"
 
+To start a flag block, use `START_OPTIONS(argc, argv)`. `argc` and `argv` can be any values, not necessarily the values
+passed to main.
+
 To add flags, use one of the following macros:
 
     // add a flag-only option (no value)
@@ -22,6 +25,8 @@ These take the form `ADD_XXX_OPT(flag, varname)` where `XXX` is the type of flag
 `flag` is a character literal for the flag (e.g., 'v'), and `varname` is the name of the variable to create and store
 the flag value in. Note that for strings, the space for the variable is allocated with `malloc(3)` and the user must use
 `free(3)` to free the memory when they are done.
+
+After adding options, use `END_OPTIONS()` to process all the options that have been added using `getopt(3)`.
 
 ## Example
 This trivial example shows the general usage:
