@@ -37,6 +37,12 @@
 #define OPT_H_INT  2 // flag has an integer argument
 #define OPT_H_STR  3 // flag has a string argument
 
+void OPT_start_options(int argc, char** argv);
+void OPT_add_option(int type, char flag, int is_required, void* data);
+void OPT_process_options();
+
+#endif // end header file
+
 #ifdef OPT_H_IMPLEMENTATION
 
 // list of found flags (letters only)
@@ -172,7 +178,5 @@ void OPT_add_option(int type, char flag, int is_required, void* data) {
 
     OPT_is_required[index] = is_required;
 }
-
-#endif
 
 #endif
