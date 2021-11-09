@@ -17,42 +17,44 @@
 // add a flag option
 #define ADD_FLAG_OPT(flag, varname) \
     int varname = 0; \
-    OPT_add_option(OPT_H_FLAG, flag, no_argument, &varname);
+    OPT_add_option(OPT_H_FLAG, flag, no_argument, &varname, NULL);
 
 // add an integer option
 #define ADD_INT_OPT(flag, varname) \
     int varname = 0; \
-    OPT_add_option(OPT_H_INT, flag, required_argument, &varname);
+    int OPT_has_##varname = 0; \
+    OPT_add_option(OPT_H_INT, flag, required_argument, &OPT_has_##varname, &varname);
 
 // add a string option
 #define ADD_STR_OPT(flag, varname) \
     char* varname = NULL; \
-    OPT_add_option(OPT_H_STR, flag, required_argument, &varname);
+    int OPT_has_##varname = 0; \
+    OPT_add_option(OPT_H_STR, flag, required_argument, &OPT_has_##varname, &varname);
 
 // end the option block
 #define END_OPTIONS() OPT_process_options();
 
-#define OPT_H_NONE 0 // flag is not present
+#define OPT_H_NONE 0 // flag is not defined
 #define OPT_H_FLAG 1 // flag has no argument
 #define OPT_H_INT  2 // flag has an integer argument
 #define OPT_H_STR  3 // flag has a string argument
 
 void OPT_start_options(int argc, char** argv);
-void OPT_add_option(int type, char flag, int is_required, void* data);
+void OPT_add_option(int type, char flag, int is_required, int* data_present, void* data);
 void OPT_process_options();
 
 #endif // end header file
 
 #ifdef OPT_H_IMPLEMENTATION
 
-// list of found flags (letters only)
+// list of declared flags (letters only)
 char  OPT_flags[26] = { OPT_H_NONE };
 int   OPT_num_flags = 0;
 
-// TODO: too many lists
-char   OPT_is_required[26] = { 0 };
-int*   OPT_flag_int_values[26] = { NULL }; // int and flag-only values share space
-char** OPT_flag_str_values[26] = { NULL };
+char   OPT_is_required[26] = { 0 }; // the 'requiredness' for each declared argument
+int*   OPT_found_flags[26] = { NULL }; // whether an argument was found during processing
+int*   OPT_flag_int_values[26] = { NULL }; // pointers to integer data variables
+char** OPT_flag_str_values[26] = { NULL }; // pointers to string data variables
 
 // what argc/argv to use for getopt
 // NOTE: this has all the side
@@ -103,7 +105,7 @@ void OPT_process_options() {
             continue;
         }
 
-        *(ptr++) = i + 96;
+        *(ptr++) = i + 'a' - 1; // translate alphabet index to lowercase letter
         switch(OPT_is_required[i]) {
             case no_argument:
                 break;
@@ -116,12 +118,12 @@ void OPT_process_options() {
         }
     }
 
+    // process argument string
     while ((opt = getopt(OPT_argc, OPT_argv, arg_string)) != -1) {
-        int index = (int)opt % 32;
+        int index = (int)opt % 32; // convert opt character to alphabet index
         switch (OPT_flags[index]) {
             case OPT_H_FLAG:
                 // flag only
-                *(OPT_flag_int_values[index]) = 1;
                 break;
             case OPT_H_INT:
                 // integer
@@ -136,7 +138,13 @@ void OPT_process_options() {
                 }
                 strcpy(*(OPT_flag_str_values[index]), optarg);
                 break;
+            default: /* ? */
+                fprintf(stderr, "OPT_process_options: Unexpected option type");
+                exit(EXIT_FAILURE);
         }
+
+        // successfully processed flag
+        *(OPT_found_flags[index]) = 1;
     }
 
     free(arg_string);
@@ -144,33 +152,41 @@ void OPT_process_options() {
 }
 
 // backbone of the ADD_xxx_OPT macros
-void OPT_add_option(int type, char flag, int is_required, void* data) {
+void OPT_add_option(int type, char flag, int is_required, int* data_present, void* data) {
     if (!OPT_in_progress) {
         fprintf(stderr, "OPT_add_option(): called outside of an options block\n");
         exit(EXIT_FAILURE);
     }
 
-    // get index into flags
-    size_t index = (int)flag % 32;
+    // convert opt character to alphabet index
+    int index = (int)flag % 32;
 
     // check that this flag has not been seen before
-    if (OPT_flags[index] == -1) {
+    if (OPT_flags[index] != OPT_H_NONE) {
         fprintf(stderr, "OPT_add_option(): Duplicate declaration -- '%c'\n", flag);
         exit(EXIT_FAILURE);
     }
 
-    switch(type) {
-        case OPT_H_FLAG:
-            OPT_flag_int_values[index] = (int*) data;
-            break;
-        case OPT_H_INT:
-            OPT_flag_int_values[index] = (int*) data;
-            break;
-        case OPT_H_STR:
-            OPT_flag_str_values[index] = (char**) data;
+    // save pointer to data variable
+    if (data) {
+        switch(type) {
+            case OPT_H_FLAG:
+                // do nothing
+                break;
+            case OPT_H_INT:
+                OPT_flag_int_values[index] = (int*) data;
+                break;
+            case OPT_H_STR:
+                OPT_flag_str_values[index] = (char**) data;
+                break;
+            default:
+                fprintf(stderr, "OPT_add_option(): Unexpected type value: %d\n", type);
+                exit(EXIT_FAILURE);
+        }
     }
 
-    // increment number of flags
+    // store pointer to indicator flag variable
+    OPT_found_flags[index] = data_present;
     OPT_num_flags++;
 
     // assign appropriate value to flags field
