@@ -1,6 +1,8 @@
 # opt.h
 Minimal single-header library to add command line flags to a C program using `getopt(3)`.
 
+## Usage
+
 To use, include `opt.h` in all files that will use this library. In exactly ONE of these files, use `#define
 OPT_H_IMPLEMENTATION` to generate the implementation:
 
@@ -9,26 +11,30 @@ OPT_H_IMPLEMENTATION` to generate the implementation:
 #include "opt.h"
 ```
 
-To start a flag block, use `START_OPTIONS(argc, argv)` using the `argc` and `argv` you want to pass to `getopt(3)`.
+Before starting a new set of options, call `OPT_CLEAR()` to reset the internal option state.
 
-To add flags, use the `ADD_OPTION` macro:
+Then, to add options, use:
 
 ```c
-ADD_OPTION(type, flag, varname);
+OPT_FLAG(option, var_name);
+OPT_INT(option, var_name);
+OPT_STR(option, var_name);
 ```
 
 where:
 
-- `type` is the type of flag (one of `FLAG` (no value), `INT` (integer value), or `STR` (string value)),
-- `flag` is a character literal for the flag (e.g., `'v'`),
-- `varname` is the name of the variable to create and store
-the flag value in. Two things to note:
-  - For strings, the memory for the variable is allocated with `malloc(3)` and so the user must use
-    `free(3)` to free the memory when they are done.
-  - An additional variable is created of the form `OPT_has_##varname` that indicates whether
-    a flag was seen.
+- `option` is a character literal representing the flag to use
 
-After adding options, use `END_OPTIONS()` to process the input given to `START_OPTIONS()`.
+- `var_name` is the name of the variable to create and store the flag data into.
+
+For strings, the memory for the variable is allocated with `malloc(3)` and so the user must use `free(3)` to free the
+memory when they are done.  An additional variable is created of the form `OPT_has_##varname` that indicates whether a
+flag was seen.
+
+After adding options, use `OPT_PROCESS(argc, argv)` to process options over a given `argc` and `argv`. Note that this
+has the same side effects as `getopt` on `argv`.
+
+---
 
 ## Example
 This minimal example shows the complete usage of the library:
@@ -42,17 +48,16 @@ This minimal example shows the complete usage of the library:
 int
 main(int argc, char** argv)
 {
-    START_OPTIONS(argc, argv);
-    ADD_OPTION(FLAG, 'v', is_verbose);
-    ADD_OPTION(INT, 't', time_to_live);
-    ADD_OPTION(STR, 'i', input_filename);
-    END_OPTIONS();
+    OPT_CLEAR();
+    OPT_FLAG('v', is_verbose);
+    OPT_INT('t', time_to_live);
+    OPT_STR('i', input_filename);
+    OPT_PROCESS(argv, argv);
 
     printf("Verbose: %d\n", is_verbose);
 
-    if (OPT_has_time_to_live) {
+    if (OPT_has_time_to_live)
       printf("Time To Live: %d\n", time_to_live);
-    }
 
     if (OPT_has_input_filename) {
         printf("Input Filename: %s\n", input_filename);

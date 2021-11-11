@@ -11,122 +11,162 @@
 #include <stdlib.h>
 #include <getopt.h>
 
-// typedefs to help emulate template-like behavior in ADD_OPTION
-typedef int OPT_INT;
-typedef int OPT_FLAG;
-typedef char* OPT_STR;
+// ================ BEGIN PUBLIC API ==================
 
-// start an options block with a given argc and argv
-#define START_OPTIONS(argc, argv) OPT_start_options(argc, argv);
+// flag only, no value, e.g.: `-h`
+#define OPT_FLAG(option, var_name) \
+    OPT_INTERNAL_ADD_OPTION(char,  OPT_FLAG, option, var_name)
 
-// add an option
-// type is one of FLAG, INT, or STR
-#define ADD_OPTION(type, flag, varname) \
-    OPT_##type varname = 0; \
-    int OPT_has_##varname = 0; \
-    OPT_add_option(OPT_H_##type, flag, &OPT_has_##varname, &varname);
+// flag and integer value, e.g.: `-i 100`
+#define OPT_INT(option, var_name) \
+    OPT_INTERNAL_ADD_OPTION(int,   OPT_INT,  option, var_name)
 
-// end the option block
-#define END_OPTIONS() OPT_process_options();
+// flag and string value, e.g.: `-o output.txt`
+#define OPT_STR(option, var_name) \
+    OPT_INTERNAL_ADD_OPTION(char*, OPT_STR,  option, var_name)
 
-#define OPT_H_NONE 0 // flag is not defined
-#define OPT_H_FLAG 1 // flag has no argument
-#define OPT_H_INT  2 // flag has an integer argument
-#define OPT_H_STR  3 // flag has a string argument
+// process declared options over a given argc/argv
+#define OPT_PROCESS(argc, argv) OPT_process_options(argc, argv)
+
+// reset option state
+// no memory is freed, the user is responsible for freeing
+// the any memory allocated to them
+#define OPT_CLEAR() \
+do { \
+    for (int i = 0; i < 26; i++) { \
+        OPT_options[i] = OPT_NONE; \
+        OPT_option_values[i] = NULL; \
+        OPT_has_data_flags[i] = NULL; \
+        OPT_opt_string_len = 0; \
+    } \
+} while (0)
+
+// ================ END PUBLIC API ====================
+
+#define OPT_INTERNAL_ADD_OPTION(var_type, option_type, flag, var_name) \
+    var_type var_name = 0; \
+    char OPT_has_##var_name = 0; \
+    OPT_add_option(option_type, flag, &OPT_has_##var_name, &var_name)
+
+enum OPT_TYPE {
+    OPT_NONE = 0, // option is not declared
+    OPT_FLAG,     // option has no argument
+    OPT_INT,      // option has an integer argument
+    OPT_STR,      // option has a string argument
+
+    OPT_SIZE      // must be last
+};
 
 void
-OPT_start_options(int argc, char** argv);
+OPT_add_option(enum OPT_TYPE type, char option, char* has_data_flag, void* data);
 
 void
-OPT_add_option(int type, char flag, int* has_data_flag, void* data);
-
-void
-OPT_process_options();
+OPT_process_options(int argc, char** argv);
 
 #endif // end header file
 
+// =============== BEGIN IMPLEMENTATION ===============
+
 #ifdef OPT_H_IMPLEMENTATION
 
-char   OPT_flags[26] = { OPT_H_NONE }; // list of declared flags (a-z only)
-int    OPT_num_flags = 0; // number of flags currently added in option block
-void*  OPT_flag_values[26] = { NULL }; // pointers to flag value variables
-int*   OPT_found_flags[26] = { NULL }; // pointers to `OPT_has_varname` flags
+char  OPT_options[26] = { OPT_NONE }; // list of declared options (a-z only)
+int   OPT_opt_string_len = 0; // length of opt_string for currently declared options
+void* OPT_option_values[26] = { NULL }; // pointers to option value variables
+char* OPT_has_data_flags[26] = { NULL }; // pointers to `OPT_has_var_name` flags
 
 // which argc/argv to use for getopt
-// NOTE: this has all the side
-// effects for argv that getopt
-// normally does
-int OPT_argc;
+// this has all the side effects for argv that getopt normally does
+int    OPT_argc;
 char** OPT_argv;
 
-// flag indicating whether we are in an options block
-int OPT_in_progress = 0;
-
-// cleanup any leftover data and prepare to start reading options
 void
-OPT_start_options(int argc, char** argv)
+OPT_add_option(enum OPT_TYPE type, char option, char* has_data_flag, void* data)
 {
-    // clear all existing data
-    for (int i = 0; i < 26; i++) {
-        OPT_flags[i] = OPT_H_NONE;
-        OPT_flag_values[i] = NULL;
-        OPT_in_progress = 0;
+    if (type >= OPT_SIZE) {
+        fprintf(stderr,
+                "OPT_add_option: Unexpected type value: %d; OPT_SIZE is %d\n",
+                type, OPT_SIZE);
+
+        exit(EXIT_FAILURE);
     }
 
-    // save argument count and string array pointer
-    OPT_argc = argc;
-    OPT_argv = argv;
+    // convert opt character to alphabet index
+    int index = (int)option % 32;
 
-    OPT_in_progress = 1;
+    // check that this option has not been seen before
+    if (OPT_options[index] != OPT_NONE) {
+        fprintf(stderr,
+                "OPT_add_option(): Duplicate declaration -- '%c'\n",
+                option);
+
+        exit(EXIT_FAILURE);
+    }
+
+    // save pointer to data variable
+    if (data)
+        OPT_option_values[index] = data;
+
+    // store pointer to indicator option variable
+    OPT_has_data_flags[index] = has_data_flag;
+
+    // increment size of opt_string
+    if (type == OPT_INT || type == OPT_STR)
+        OPT_opt_string_len += 2; // required argument "a:"
+    else /* OPT_FLAG */
+        OPT_opt_string_len += 1; // no argument "a"
+
+    // assign appropriate value to flags field
+    OPT_options[index] = type;
 }
 
 // read and process arguments that the user has specified
 void
-OPT_process_options()
+OPT_process_options(int argc, char** argv)
 {
-    int opt;
-    char* arg_string;
+    // save argument count and string array pointer
+    OPT_argc = argc;
+    OPT_argv = argv;
 
-    // eagerly allocate the maximum size
-    // (2 characters for each flag, 'a:')
-    arg_string = malloc(OPT_num_flags * 2 + 1);
-    if (!arg_string) {
+    int opt;
+    char* opt_string;
+
+    // allocate memory for opt_string
+    opt_string = malloc(OPT_opt_string_len+1);
+    if (!opt_string) {
         perror("OPT_process_options");
         exit(EXIT_FAILURE);
     }
-    memset(arg_string, 0, OPT_num_flags*2+1);
+    memset(opt_string, 0, OPT_opt_string_len+1);
 
-    char* ptr = arg_string;
-    for (size_t i = 0; i < sizeof(OPT_flags); i++) {
-        int type = OPT_flags[i];
+    // construct opstring
+    char* ptr = opt_string;
+    for (size_t i = 0; i < sizeof(OPT_options); i++) {
+        int type = OPT_options[i];
 
-        if (type == OPT_H_NONE) // flag not defined
+        if (type == OPT_NONE) // flag not defined
             continue;
 
         *(ptr++) = i + 'a' - 1; // translate alphabet index to lowercase letter
-
-        if (type == OPT_H_INT || type == OPT_H_STR)
+        if (type == OPT_INT || type == OPT_STR)
             *(ptr++) = ':'; // indicate required value
     }
 
     // process argument string
-    while ((opt = getopt(OPT_argc, OPT_argv, arg_string)) != -1) {
+    while ((opt = getopt(OPT_argc, OPT_argv, opt_string)) != -1) {
         int index = (int)opt % 32; // convert opt character to alphabet index
-        int type = OPT_flags[index];
+        int type = OPT_options[index];
         switch (type) {
-            case OPT_H_INT: {
+            case OPT_INT: {
                 // integer flag
-                int* ptr = (int*)OPT_flag_values[index];
-
+                int* ptr = (int*)OPT_option_values[index];
                 *ptr = atoi(optarg);
                 break;
             }
-            case OPT_H_STR: {
+            case OPT_STR: {
                 // string flag
-                char** ptr = (char**)OPT_flag_values[index];
+                char** ptr = (char**)OPT_option_values[index];
 
                 *ptr = malloc(strlen(optarg)+1);
-
                 if (!(*ptr)) {
                     perror("OPT_process_options");
                     exit(EXIT_FAILURE);
@@ -135,10 +175,9 @@ OPT_process_options()
                 strcpy(*ptr, optarg);
                 break;
             }
-            case OPT_H_FLAG: {
+            case OPT_FLAG: {
                 // regular flag (no data)
-                int* ptr = (int*)OPT_flag_values[index];
-
+                char* ptr = (char*)OPT_option_values[index];
                 *ptr = 1;
                 break;
             }
@@ -149,48 +188,11 @@ OPT_process_options()
         }
 
         // successfully processed flag
-        if (OPT_found_flags[index])
-            *(OPT_found_flags[index]) = 1;
+        *(OPT_has_data_flags[index]) = 1;
     }
 
-    free(arg_string);
-    OPT_in_progress = 0;
-}
-
-void
-OPT_add_option(int type, char flag, int* has_data_flag, void* data)
-{
-    if (!OPT_in_progress) {
-        fprintf(stderr, "OPT_add_option(): called outside of an options block\n");
-        exit(EXIT_FAILURE);
-    }
-
-    // convert opt character to alphabet index
-    int index = (int)flag % 32;
-
-    // check that this flag has not been seen before
-    if (OPT_flags[index] != OPT_H_NONE) {
-        fprintf(stderr, "OPT_add_option(): Duplicate declaration -- '%c'\n", flag);
-        exit(EXIT_FAILURE);
-    }
-
-    // save pointer to data variable
-    if (data) {
-        if (!type == OPT_H_INT && !type == OPT_H_STR && !type == OPT_H_FLAG) {
-            fprintf(stderr, "OPT_add_option(): Unexpected type value: %d\n", type);
-            exit(EXIT_FAILURE);
-        }
-
-        // save pointer to data variable
-        OPT_flag_values[index] = data;
-    }
-
-    // store pointer to indicator flag variable
-    OPT_found_flags[index] = has_data_flag;
-    OPT_num_flags++;
-
-    // assign appropriate value to flags field
-    OPT_flags[index] = type;
+    free(opt_string);
 }
 
 #endif
+// =============== END IMPLEMENTATION ===============
