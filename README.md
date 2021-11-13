@@ -52,7 +52,7 @@ main(int argc, char** argv)
     OPT_FLAG('v', is_verbose);
     OPT_INT('t', time_to_live);
     OPT_STR('i', input_filename);
-    OPT_PROCESS(argv, argv);
+    OPT_PROCESS(argc, argv);
 
     printf("Verbose: %d\n", is_verbose);
 
