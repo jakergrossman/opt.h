@@ -131,7 +131,7 @@ OPT_process_options(int argc, char** argv)
     char* opt_string;
 
     // allocate memory for opt_string
-    opt_string = malloc(OPT_opt_string_len+1);
+    opt_string = (char*)malloc(OPT_opt_string_len+1);
     if (!opt_string) {
         perror("OPT_process_options");
         exit(EXIT_FAILURE);
@@ -166,7 +166,7 @@ OPT_process_options(int argc, char** argv)
                 // string flag
                 char** ptr = (char**)OPT_option_values[index];
 
-                *ptr = malloc(strlen(optarg)+1);
+                *ptr = (char*)malloc(strlen(optarg)+1);
                 if (!(*ptr)) {
                     perror("OPT_process_options");
                     exit(EXIT_FAILURE);
